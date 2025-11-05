@@ -2,75 +2,98 @@
 Multi-source AI Assistant using Microsoft Agent Framework.
 
 This module provides a flexible AI assistant that can integrate ANY data sources
-via a simple tool + service injection pattern. The agent can autonomously reason,
-call multiple tools in sequence, chain results, and synthesize comprehensive answers.
+via a simple tool + service injection pattern. The agent autonomously reasons,
+calls appropriate tools in sequence, chains results, and synthesizes comprehensive answers.
 
 ARCHITECTURE - Tool + Service Pattern
 =====================================
 
-Each tool requires:
-1. A function definition with Annotated parameters (the tool contract)
-2. A service class to execute the tool (the implementation)
+Each tool requires two components:
 
-Tools communicate ONLY through their parameters/return types.
+1. A SERVICE class that knows HOW to query a data source
+   - Handles connection/authentication
+   - Executes queries
+   - Returns results
+   - Handles errors
+
+2. A TOOL function that defines the LLM-callable interface
+   - Annotated parameters (what the LLM passes)
+   - Delegates to the service
+   - Returns results to the LLM
+
+Tools and services communicate through well-defined interfaces.
 Services are injected via dependency injection at initialization.
 
-ADDING NEW TOOLS - 3 Simple Steps
-==================================
+ADDING NEW TOOLS
+================
+
+To add a new data source to the assistant:
 
 Step 1: Create a Service Class
-   Example: DataWarehouseService for querying a data warehouse
+   Location: src/your_source/service.py
+   Purpose: Handles all interactions with the data source
 
-   class DataWarehouseService:
-       def query(self, query: str) -> str:
-           # Execute query, return results
+   Example:
+   ```
+   class SQLDatabaseService:
+       def __init__(self, connection_string: str):
+           self.connection_string = connection_string
+       
+       def query(self, question: str) -> str:
+           # Execute query logic here
            return results
+   ```
 
 Step 2: Create the Tool Function
-   The function signature defines the LLM-callable interface.
-   The function body delegates to the service.
+   Location: src/ai/assistant.py _load_tools() method
+   Purpose: Defines the LLM-callable interface
 
-   def query_data_warehouse(
+   Example:
+   ```
+   def query_sql_database(
        query: Annotated[str, Field(
-           description="SQL query or natural language query"
+           description="SQL query or natural language question"
        )]
    ) -> str:
-       '''Query corporate data warehouse.'''
-       return self.data_warehouse_service.query(query)
+       '''Query the SQL database for business data.'''
+       return self.sql_database_service.query(query)
+   ```
 
-Step 3: Register Tool + Inject Service in __init__
-   In AIAssistant.__init__:
+Step 3: Register Tool + Inject Service
+   In AIAssistant.__init__():
+   - Create service instance: self.sql_database_service = SQLDatabaseService(...)
+   - Call self._load_tools() (automatically loads all registered tools)
+   - Add tool function reference: self.tools.append(query_sql_database)
 
-   self.data_warehouse_service = DataWarehouseService(config)
-   self._load_tools()  # Loads all tools
+Step 4: Update System Prompt (Optional)
+   Location: config/system_prompt.txt
+   Purpose: Help LLM understand when to use this tool
 
-Step 4: Update system prompt (optional)
-   Add documentation in config/system_prompt.txt for the new tool
-
-THAT'S IT! The Agent Framework handles:
-- Deciding which tools to call and when
-- Parameter passing and type validation
+The Agent Framework handles:
+- Reasoning logic (when to use tools, when to answer)
+- Tool selection and calling
+- Parameter validation and type checking
 - Multi-step reasoning and tool chaining
-- Context management across calls
+- Context management across multiple calls
 
-EXAMPLE MULTI-SOURCE SCENARIO:
-==============================
+MULTI-SOURCE EXAMPLE
+====================
 
-Tools Available:
-- query_fabric_data_agent(query) -> str        [Financial data]
-- query_data_warehouse(query) -> str           [Corporate data]
-- search_external_api(query) -> str            [External sources]
-- calculate_statistics(data) -> str            [Computations]
+If you have these tools:
+- query_fabric_data_agent() → Financial/business data from Fabric
+- query_sql_database()      → Operational data from SQL
+- search_api()              → External market data
+- calculate_metrics()       → Statistical computations
 
-User Query: "Show me Q4 revenue trends and compare to industry averages"
+When a user asks: "Show Q4 revenue trends vs industry averages"
 
-Agent Flow (automatic):
-1. Calls query_fabric_data_agent("Q4 revenue") -> gets internal revenue
-2. Calls search_external_api("Q4 industry revenue trends") -> gets external data
-3. Calls calculate_statistics([internal, external]) -> computes comparison
-4. Synthesizes final answer
+The agent might:
+1. Call query_fabric_data_agent("Q4 revenue by month")
+2. Call search_api("Q4 industry average revenue")
+3. Call calculate_metrics(both results) for comparison
+4. Synthesize and return complete answer
 
-No code changes needed - just services + tools!
+The agent decides the sequence automatically based on the question.
 """
 
 from pathlib import Path
@@ -119,7 +142,7 @@ class AIAssistant:
     - Agent Framework automatically calls tools as needed
     - No hardcoded tool routing or if/else logic needed
 
-    Benefits:
+    Common Approaches:
     - Add new sources: Create service + tool function
     - Remove sources: Delete service initialization + tool function
     - Test sources: Mock service in unit tests
@@ -142,7 +165,7 @@ class AIAssistant:
 
     4. Update system prompt (optional)
 
-    Done! Agent can now call query_database() alongside other tools.
+    Then the agent can call query_database() alongside other tools.
     """
 
     def __init__(self, aoai_settings: AzureOpenAISettings) -> None:
@@ -192,37 +215,21 @@ class AIAssistant:
         Register all tools for the agent.
 
         Each tool function:
-        1. Receives parameters from LLM
+        1. Receives parameters from the LLM with annotated types and descriptions
         2. Delegates to a service (injected in __init__)
-        3. Returns results to LLM
+        3. Returns results back to the LLM as strings
 
-        TOOL ADDITION PATTERN - Add as many tools as needed:
-        ====================================================
+        Tool Pattern:
+        - Define tool function with parameters annotated using Annotated[type, Field(...)]
+        - Include descriptive docstring for the LLM
+        - Implement try/except for error handling
+        - Call self.tools.append(tool_function) to register
 
-        1. Simple Tool (Single Service):
-           def query_my_source(
-               param: Annotated[str, Field(description="...")]
-           ) -> str:
-               '''Tool documentation for LLM.'''
-               return self.my_service.query(param)
+        Current tools registered:
+        - query_fabric_data_agent: Query business/financial data from Fabric
+        - query_sql_database: Query operational data from SQL (template)
 
-        2. Complex Tool (Multiple Services):
-           def analyze_data(
-               query: Annotated[str, Field(description="...")]
-           ) -> str:
-               '''Combine data from multiple sources.'''
-               data1 = self.service1.fetch(query)
-               data2 = self.service2.fetch(query)
-               return self.analysis_service.combine(data1, data2)
-
-        3. Computation Tool:
-           def calculate_metrics(
-               data: Annotated[str, Field(description="...")]
-           ) -> str:
-               '''Process and compute statistics.'''
-               return self.compute_service.analyze(data)
-
-        Register with: self.tools.append(tool_function)
+        To add more tools, follow the existing pattern in this method.
         """
         
         # ====================================================================
@@ -260,26 +267,53 @@ class AIAssistant:
         self.tools.append(query_fabric_data_agent)
 
         # ====================================================================
-        # TOOL ADDITION TEMPLATE - Copy/paste and customize for each source
+        # TOOL 2: Query SQL Database (Operational Data Source)
         # ====================================================================
-        # def query_database(
-        #     query: Annotated[
+        # UNCOMMENT AND CONFIGURE WHEN YOU HAVE A SQL DATABASE SERVICE
+        # def query_sql_database(
+        #     question: Annotated[
         #         str,
         #         Field(
-        #             description="SQL or natural language query for database"
+        #             description=(
+        #                 "Natural language question about operational data. "
+        #                 "Use for questions about records, aggregations, or analysis "
+        #                 "from SQL databases."
+        #             )
         #         ),
         #     ]
         # ) -> str:
-        #     """Query the corporate database for operational data."""
+        #     """Query the SQL database for operational data."""
         #     try:
-        #         logger.info("Database query", query=query)
-        #         result = self.database_service.query(query)
+        #         logger.info("SQL Database query", question=question)
+        #         result = self.sql_database_service.query(question)
         #         return result
         #     except Exception as e:
-        #         logger.error("Database query failed", error=str(e))
+        #         logger.error("SQL Database query failed", error=str(e))
         #         return f"Error: {str(e)}"
         #
-        # self.tools.append(query_database)
+        # self.tools.append(query_sql_database)
+
+        # ====================================================================
+        # TOOL ADDITION TEMPLATE - Copy/paste and customize for each source
+        # ====================================================================
+        # def query_my_source(
+        #     query: Annotated[
+        #         str,
+        #         Field(
+        #             description="Natural language query for my data source"
+        #         ),
+        #     ]
+        # ) -> str:
+        #     """Query my custom data source."""
+        #     try:
+        #         logger.info("My source query", query=query)
+        #         result = self.my_service.query(query)
+        #         return result
+        #     except Exception as e:
+        #         logger.error("My source query failed", error=str(e))
+        #         return f"Error: {str(e)}"
+        #
+        # self.tools.append(query_my_source)
 
     async def process_question(self, question: str) -> Dict[str, Any]:
         """

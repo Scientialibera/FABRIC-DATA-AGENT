@@ -1,0 +1,21 @@
+{
+  "type": "function",
+  "function": {
+    "name": "query_sql_database",
+    "description": "Query a SQL database to retrieve operational data from tables and views. Use this tool when the user asks questions about data stored in SQL databases, such as asking for specific records, aggregations, or data analysis from relational data sources.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "reasoning": {
+          "type": "string",
+          "description": "Explain why you are calling this tool - what aspect of the data does the user need to understand? For example: 'User wants to see all orders from Q4', or 'User needs customer transaction history'"
+        },
+        "question": {
+          "type": "string",
+          "description": "The natural language question or query to send to the SQL database. Examples: 'What orders were placed in Q4?', 'Show me all customers in the USA', 'What is the average order value?'"
+        }
+      },
+      "required": ["reasoning", "question"]
+    }
+  }
+}

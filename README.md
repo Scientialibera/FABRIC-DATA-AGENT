@@ -22,7 +22,7 @@ python tests/test_agentic_queries.py
 
 ---
 
-# The Pattern (There's Only One)
+# The Pattern
 
 ```
 Query comes in
@@ -43,11 +43,11 @@ LLM decides: "Do I need a tool?"
               └─ TOOL   → Loop (go back)
 ```
 
-**That's it.** The LLM handles all "combining" automatically because it sees all tool results in the context.
+This pattern applies to any LLM-based agent: the LLM makes tool decisions automatically because it sees all results in context.
 
 ---
 
-# Adding Tools (The Only Way)
+# Adding Tools
 
 ## 1. Create Service
 
@@ -126,7 +126,191 @@ No routing. No orchestration. Just services + tools.
 
 ---
 
-# Example: Multi-Tool Scenario
+## Done!
+
+Agent Framework automatically:
+- Adds tool to LLM's available tools
+- LLM calls it when needed
+- Feeds result back to LLM context
+- LLM chains with other tools (because it sees all results)
+
+No routing. No orchestration. Just services + tools.
+
+---
+
+# Example: SQL Database Tool
+
+To add SQL database querying capability:
+
+## File: `config/tool_database.json`
+
+```json
+{
+  "name": "query_sql_database",
+  "description": "Query the SQL database for business operational data",
+  "connection": {
+    "server": "your-server.database.windows.net",
+    "database": "your_database",
+    "auth": "managed_identity"
+  },
+  "example_queries": [
+    "How many orders in Q4?",
+    "Top 10 customers by revenue",
+    "Monthly sales trend"
+  ]
+}
+```
+
+## File: `src/database/service.py`
+
+```python
+import pyodbc
+from typing import Optional
+
+class SQLDatabaseService:
+    """Query SQL database using natural language."""
+    
+    def __init__(self, server: str, database: str, auth_type: str = "managed_identity"):
+        self.server = server
+        self.database = database
+        self.auth_type = auth_type
+        self.connection: Optional[pyodbc.Connection] = None
+    
+    def connect(self):
+        """Establish database connection."""
+        if self.auth_type == "managed_identity":
+            # Use DefaultAzureCredential for managed identity
+            from azure.identity import DefaultAzureCredential
+            token = DefaultAzureCredential().get_token("https://database.windows.net")
+            connection_string = (
+                f"DRIVER={{ODBC Driver 18 for SQL Server}};SERVER={self.server};"
+                f"DATABASE={self.database};UID=;PWD={token.token};"
+            )
+        else:
+            # Use connection string
+            connection_string = (
+                f"DRIVER={{ODBC Driver 18 for SQL Server}};SERVER={self.server};"
+                f"DATABASE={self.database};"
+            )
+        
+        self.connection = pyodbc.connect(connection_string)
+    
+    def query(self, question: str) -> str:
+        """Execute query based on natural language question."""
+        try:
+            if not self.connection:
+                self.connect()
+            
+            # TODO: Convert natural language to SQL using LLM
+            # Or: Execute predefined queries based on keywords
+            
+            cursor = self.connection.cursor()
+            # cursor.execute(sql_query)
+            # results = cursor.fetchall()
+            # return format_results(results)
+            
+            return "Query results..."
+        except Exception as e:
+            return f"Error querying database: {str(e)}"
+    
+    def close(self):
+        """Close database connection."""
+        if self.connection:
+            self.connection.close()
+```
+
+## File: `src/ai/assistant.py` - Update `__init__`
+
+```python
+def __init__(self, aoai_settings: AzureOpenAISettings) -> None:
+    self.fabric_service = get_fabric_service()
+    
+    # ADD THIS - New SQL database service
+    self.sql_database_service = SQLDatabaseService(
+        server="your-server.database.windows.net",
+        database="your_database"
+    )
+    
+    # ... rest of init ...
+```
+
+## File: `src/ai/assistant.py` - Update `_load_tools()`
+
+```python
+def _load_tools(self) -> None:
+    """Register all tools."""
+    
+    # ... existing tools ...
+    
+    # ADD THIS - New SQL database tool
+    def query_sql_database(
+        question: Annotated[
+            str,
+            Field(
+                description=(
+                    "Natural language question about business data. "
+                    "Use for operational queries (orders, customers, inventory, etc)"
+                )
+            )
+        ]
+    ) -> str:
+        """Query SQL database for operational business data."""
+        try:
+            logger.info("SQL database query", question=question)
+            result = self.sql_database_service.query(question)
+            logger.info("SQL query completed", question=question)
+            return result
+        except Exception as e:
+            logger.error("SQL database query failed", error=str(e))
+            return f"Error: {str(e)}"
+    
+    self.tools.append(query_sql_database)
+```
+
+## Result
+
+Now the LLM can use multiple tools:
+- `query_fabric_data_agent()` - For financial/business metrics from Fabric
+- `query_sql_database()` - For operational data from SQL
+
+When user asks "Compare Q4 revenue with monthly sales trends", the LLM will:
+1. Call `query_fabric_data_agent()` for revenue
+2. Call `query_sql_database()` for monthly sales
+3. Synthesize both results into final answer
+
+---
+
+# Multi-Tool Scenario
+
+**User**: "Show Q4 revenue and compare to monthly sales trend"
+
+```
+LLM sees available tools:
+  - query_fabric_data_agent()
+  - query_sql_database()
+
+LLM reasoning:
+  "Need financial metrics AND operational trends"
+
+1. Calls query_fabric_data_agent("Q4 revenue")
+   → Returns: "Q4 revenue: $50M (up 15% QoQ)"
+   → Added to context
+
+2. Calls query_sql_database("monthly sales trend 2024")
+   → Returns: "Jan: $10M, Feb: $11M, ... Dec: $15M"
+   → Added to context
+
+3. LLM sees both results
+   → Synthesizes: "Q4 (Oct-Dec avg: $13.3M) shows strong 
+                   growth trend throughout year"
+   → Returns answer
+```
+
+The LLM combines results automatically because it sees all tool outputs in context.
+
+---
+
+# Multi-Tool Scenario
 
 **User**: "Show Q4 revenue and compare to industry average"
 
