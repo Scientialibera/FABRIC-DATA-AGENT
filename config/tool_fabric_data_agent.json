@@ -1,0 +1,21 @@
+{
+  "type": "function",
+  "function": {
+    "name": "query_fabric_data_agent",
+    "description": "Query the Fabric Data Agent to retrieve data insights from Power BI semantic models, warehouses, or lakehouses. Use this tool when the user asks questions about data that require querying business intelligence data sources, such as asking for specific values, aggregations, or data analysis.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "reasoning": {
+          "type": "string",
+          "description": "Explain why you are calling this tool - what aspect of the data does the user need to understand? For example: 'User wants to see all distinct values in the Category field', or 'User needs sales totals for analysis'"
+        },
+        "query": {
+          "type": "string",
+          "description": "The natural language question or query to send to the Fabric Data Agent. Examples: 'What are the distinct categories?', 'What were total sales last quarter?', 'Show me all product names'"
+        }
+      },
+      "required": ["reasoning", "query"]
+    }
+  }
+}
