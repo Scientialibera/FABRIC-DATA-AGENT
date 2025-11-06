@@ -28,7 +28,7 @@ from pydantic import Field
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from src.ai.assistant import AIAssistant
-from src.config.settings import AzureOpenAISettings, ENABLE_MCP_SERVER
+from config.src.settings import AzureOpenAISettings, ENABLE_MCP_SERVER
 
 # ============================================================================
 # LOGGING CONFIGURATION

@@ -1,0 +1,21 @@
+{
+  "type": "function",
+  "function": {
+    "name": "fabric_data",
+    "description": "Query business data from Fabric (semantic models, warehouses, lakehouses) using natural language. This tool translates your intent into the appropriate query language and returns results. Use natural language to express what data you need, not SQL or technical queries.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "reasoning": {
+          "type": "string",
+          "description": "Explain your intent: Why are you querying? What question is the user asking? For example: 'User wants to see all distinct values in the Category field to understand available categories' or 'User needs top 5 accounts by balance for comparison analysis'"
+        },
+        "query": {
+          "type": "string",
+          "description": "Natural language expression of what data you need (NOT SQL). Examples: 'What are the distinct categories?', 'Show me the top 5 accounts by closing balance', 'What is the total revenue by region?', 'List all product names ordered alphabetically'"
+        }
+      },
+      "required": ["reasoning", "query"]
+    }
+  }
+}

@@ -13,7 +13,7 @@ from dotenv import load_dotenv
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from src.config.settings import AzureOpenAISettings
+from config.src.settings import AzureOpenAISettings
 from src.ai.assistant import AIAssistant
 
 # Configure logging

@@ -2,6 +2,14 @@
 
 Enterprise-grade Python application using Microsoft's Agent Framework. The LLM autonomously decides which tools to call, chains them, and synthesizes answers. That's the entire pattern.
 
+## Documentation
+
+**Start here:**
+- **[ADD_NEW_TOOL.md](docs/ADD_NEW_TOOL.md)** - Step-by-step guide to add a new tool (recommended first read)
+- **[ARCHITECTURE.md](docs/ARCHITECTURE.md)** - System design, data flows, and component relationships
+- **[TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md)** - Debug guide and common issues
+- **[SUMMARY.md](docs/SUMMARY.md)** - System overview and quick reference
+
 ## Quick Start
 
 ```bash
@@ -47,82 +55,140 @@ This pattern applies to any LLM-based agent: the LLM makes tool decisions automa
 
 ---
 
-# Adding Tools
+# Adding Tools - Dynamic Discovery Pattern
 
-## 1. Create Service
+This system uses **automatic tool discovery** based on a strict naming convention. Add a new tool by simply creating 3 files - no code changes needed!
 
-Service knows how to query a data source.
+## The Naming Convention
 
-**File: `src/database/service.py`**
+Tools are auto-discovered using this 1:1:1 mapping:
+
+```
+config/tools/<NAME>.json         ← Tool config (metadata)
+         ↓
+src/<NAME>/service.py            ← Service implementation  
+         ↓
+self.<name>_service              ← Service instance (optional - auto-created if missing)
+```
+
+## Step 1: Create Tool Configuration
+
+**File: `config/tools/<NAME>.json`**
+
+```json
+{
+  "type": "function",
+  "function": {
+    "name": "query_sql_database",
+    "description": "Query SQL database for operational data",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "reasoning": {
+          "type": "string",
+          "description": "Why are you calling this tool?"
+        },
+        "query": {
+          "type": "string",
+          "description": "Natural language question (NOT SQL)"
+        }
+      },
+      "required": ["reasoning", "query"]
+    }
+  }
+}
+```
+
+## Step 2: Create Service Class
+
+**File: `src/<NAME>/service.py`**
 
 ```python
-class DatabaseService:
-    """Query SQL database."""
+class SqlDatabaseService:
+    """Query operational data from SQL database."""
     
-    def __init__(self, connection_string: str):
-        self.connection_string = connection_string
+    def run(self, tool_call: dict) -> str:
+        """
+        Execute query.
+        
+        Args:
+            tool_call: Dict with parameters (query, reasoning, etc)
+        
+        Returns:
+            String result
+        """
+        query = tool_call.get('query', '')
+        reasoning = tool_call.get('reasoning', '')
+        
+        # Your query logic here
+        results = self._execute_query(query)
+        return str(results)
     
-    def query(self, question: str) -> str:
-        """Execute query based on natural language question."""
-        try:
-            # Your DB logic here
-            results = self._execute_query(question)
-            return results
-        except Exception as e:
-            return f"Error: {str(e)}"
-    
-    def _execute_query(self, question: str) -> str:
-        # TODO: Your query implementation
+    def _execute_query(self, query: str) -> str:
+        # Implementation
         pass
+
+
+def get_sql_database_service() -> SqlDatabaseService:
+    """Factory function for service creation."""
+    return SqlDatabaseService()
 ```
 
-## 2. Initialize Service
+## That's It!
 
-**File: `src/ai/assistant.py` → `__init__` method:**
+Tool loader automatically:
+1. Discovers `config/tools/sql_database.json`
+2. Finds or creates `self.sql_database_service`
+3. Creates and registers `query_sql_database()` function
+4. Agent can now use the tool
 
-```python
-def __init__(self, aoai_settings: AzureOpenAISettings) -> None:
-    self.fabric_service = get_fabric_service()
-    self.database_service = DatabaseService(connection_string)  # ← ADD THIS
-    
-    # ... rest of init ...
+No code changes needed to `_load_tools()` or anywhere else! Services are created dynamically using the naming convention.
+
+---
+
+## System Prompt Configuration
+
+After adding tools, update `config/system_prompt.txt` to help the LLM understand the available tools and when to use them.
+
+**Why update the system prompt?**
+- Tells the LLM which tools exist and what they're for
+- Provides context about data sources (Fabric, SQL, API, etc.)
+- Helps the LLM decide which tool to use for different questions
+- Enables better tool chaining (combining results from multiple tools)
+
+**Example system prompt snippet:**
+
+```
+You are an AI assistant with access to multiple data sources:
+
+1. Fabric Data Agent - Query business/financial data
+   - Use for: revenue, sales, customer data, KPIs
+   - Available in: Power BI semantic models, warehouses, lakehouses
+
+2. SQL Database - Query operational data
+   - Use for: customer records, orders, transactions
+   - Available in: Corporate SQL Server
+
+3. External API - Search market data
+   - Use for: industry benchmarks, competitor data, market trends
+
+When a user asks a question:
+- Determine which tool(s) have the data they need
+- Call the appropriate tool(s)
+- Combine results if needed
+- Provide a synthesized answer
+
+Example: "Show Q4 revenue vs industry average"
+  → Call: query_fabric_data_agent("Q4 revenue")
+  → Call: search_api("Q4 industry average")
+  → Synthesize and compare both results
 ```
 
-## 3. Create Tool Function
-
-**File: `src/ai/assistant.py` → `_load_tools()` method:**
-
-```python
-def _load_tools(self) -> None:
-    """Register all tools."""
-    
-    # ... existing tools ...
-    
-    # YOUR NEW TOOL
-    def query_database(
-        query: Annotated[
-            str,
-            Field(description="SQL query or natural language question about database")
-        ]
-    ) -> str:
-        """Query corporate database for operational data."""
-        try:
-            return self.database_service.query(query)
-        except Exception as e:
-            return f"Error: {str(e)}"
-    
-    self.tools.append(query_database)
-```
-
-## Done!
-
-Agent Framework automatically:
-- Adds tool to LLM's available tools
-- LLM calls it when needed
-- Feeds result back to LLM context
-- LLM chains with other tools (because it sees all results)
-
-No routing. No orchestration. Just services + tools.
+**Key tips:**
+- Be specific about what data each tool accesses
+- Give examples of questions for each tool
+- Explain when to use multiple tools together
+- Update this whenever you add or remove tools
 
 ---
 
@@ -142,7 +208,7 @@ No routing. No orchestration. Just services + tools.
 
 To add SQL database querying capability:
 
-## File: `config/tool_database.json`
+## File: `config/tools/database.json`
 
 ```json
 {
@@ -395,12 +461,12 @@ TENANT_ID=your-tenant-id
 # AZURE_OPENAI_MAX_TOKENS=2000
 ```
 
-## `src/config/settings.py`
+## `config/src/settings.py`
 
 Contains defaults and validation. Load with:
 
 ```python
-from src.config.settings import AzureOpenAISettings
+from config.src.settings import AzureOpenAISettings
 settings = AzureOpenAISettings.from_env()
 ```
 
@@ -461,7 +527,7 @@ The agent is now available as a tool to any MCP-compatible client.
 ```python
 import asyncio
 from src.ai.assistant import AIAssistant
-from src.config.settings import AzureOpenAISettings
+from config.src.settings import AzureOpenAISettings
 
 
 async def test():

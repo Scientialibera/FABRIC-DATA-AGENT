@@ -157,4 +157,3 @@ class AzureOpenAISettings(BaseModel):
             temperature=float(os.getenv("AZURE_OPENAI_TEMPERATURE", DEFAULT_TEMPERATURE)),
             max_tokens=int(os.getenv("AZURE_OPENAI_MAX_TOKENS", DEFAULT_MAX_TOKENS)),
         )
-
