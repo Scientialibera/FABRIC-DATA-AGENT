@@ -40,11 +40,6 @@ ADDING NEW TOOLS (3 Steps)
 2. Create service: src/<NAME>/service.py with <NAME>Service class
    - Implement run(tool_call, tool_config) -> str method
    - Optionally provide get_<NAME>_service() factory function
-   
-3. (Optional) Pre-initialize service in __init__()
-   - If not initialized, tool_loader creates it dynamically using naming convention
-
-That's it! Tool loader handles discovery, service creation, and function registration.
 """
 
 from pathlib import Path
@@ -192,5 +187,3 @@ class AIAssistant:
                     except Exception as e:
                         logger.warning("Failed to close service", service_name=attr_name, error=str(e))
         logger.info("AI Assistant closed")
-
-
