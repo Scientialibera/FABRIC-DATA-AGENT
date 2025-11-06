@@ -86,7 +86,7 @@ def create_tool_function(
     service_instance: Any,
     service_method: str = "run"
 ) -> Callable:
-    """Create tool function that calls service method with properly typed parameters."""
+    """Create tool function that calls service method via clean wrapper."""
     func_cfg = tool_config.get("function", {})
     func_name = func_cfg.get("name", tool_name)
     func_desc = func_cfg.get("description", "")
@@ -101,50 +101,36 @@ def create_tool_function(
             param_desc = param_info.get("description", "")
             docstring += f"\n  {param_name}: {param_desc}"
     
-    # Get parameter names
+    # Build signature using inspect for introspection
     param_names = list(properties.keys())
+    params = [inspect.Parameter(name, inspect.Parameter.POSITIONAL_OR_KEYWORD, annotation=str)
+              for name in param_names]
+    sig = inspect.Signature(params, return_annotation=str)
     
-    # Use exec to create a function with the exact signature Agent Framework expects
-    # This is necessary because we need explicit named parameters, not **kwargs
+    def tool_wrapper(*args, **kwargs) -> str:
+        """Generic tool wrapper that calls the service method."""
+        try:
+            # Bind arguments to signature and convert to dict
+            bound = sig.bind(*args, **kwargs)
+            bound.apply_defaults()
+            tool_call = dict(bound.arguments)
+            
+            logger.debug("Tool function called", tool_name=tool_name, tool_call=tool_call)
+            method = getattr(service_instance, service_method)
+            result = method(tool_call=tool_call)
+            logger.debug("Tool function result", tool_name=tool_name, result=result)
+            return result
+        except Exception as e:
+            logger.error("Tool function error", tool_name=tool_name, error=str(e), exc_info=True)
+            return f"Error: {str(e)}"
     
-    # Build the function signature
-    sig_params = ", ".join(f"{name}: str" for name in param_names)
+    # Set metadata for introspection
+    tool_wrapper.__name__ = func_name
+    tool_wrapper.__doc__ = docstring
+    tool_wrapper.__signature__ = sig
+    tool_wrapper._params = properties
     
-    # Build the tool_call dict construction
-    tool_call_items = ", ".join(f'"{name}": {name}' for name in param_names)
-    
-    func_body = f'''
-def {func_name}({sig_params}) -> str:
-    """Tool implementation."""
-    try:
-        tool_call = {{{tool_call_items}}}
-        logger.debug("Tool function called", tool_name="{tool_name}", tool_call=tool_call)
-        method = getattr(service_instance, service_method)
-        result = method(tool_call=tool_call)
-        logger.debug("Tool function result", tool_name="{tool_name}", result=result)
-        return result
-    except Exception as e:
-        logger.error("Tool function error", tool_name="{tool_name}", error=str(e), exc_info=True)
-        return f"Error: {{str(e)}}"
-'''
-    
-    # Create namespace for exec with necessary imports
-    namespace = {
-        'logger': logger,
-        'getattr': getattr,
-        'service_instance': service_instance,
-        'service_method': service_method,
-    }
-    
-    # Execute to create the function
-    exec(func_body, namespace)
-    tool_fn = namespace[func_name]
-    
-    # Set docstring
-    tool_fn.__doc__ = docstring
-    tool_fn._params = properties
-    
-    return tool_fn
+    return tool_wrapper
 
 
 def load_and_register_tools(
